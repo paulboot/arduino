@@ -31,6 +31,18 @@
  by Tom Igoe
  */
 #include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BMP280.h>
+
+/*=========================================================================
+ I2C ADDRESS/BITS/SETTINGS
+ -----------------------------------------------------------------------*/
+#define BMP280_ADDRESS                (0x76)
+#define BMP280_CHIPID                 (0x58)
+/*=========================================================================*/
+
+Adafruit_BMP280 bmp; // I2C
 
 const char* name = "sensor01";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
@@ -77,6 +89,9 @@ void setup()
 
     server.begin();
 
+    if (!bmp.begin(BMP280_ADDRESS, BMP280_CHIPID)) {  
+      Serial.println(F("Could not find a valid BMP280 sensor, check address and wiring!"));
+    }
 }
 
 void printWifiStatus() {
@@ -152,10 +167,16 @@ void loop(){
   temperatureSample = getTemperatureInternal();
   temperatureSum += temperatureSample; 
   temperatureAverage = temperatureSum / stap12;
-  Serial.print("Temperature sample = ");
-  Serial.println(temperatureSample);
-  Serial.print("Temperature average = ");
+  Serial.print("CPU temperature sample = ");
+  Serial.print(temperatureSample);
+  Serial.print(" average = ");
   Serial.println(temperatureAverage);
+  Serial.print("External sensor1 temperature sample = ");
+  Serial.print(bmp.readTemperature());
+  Serial.println(" *C");
+  Serial.print("External sensor1 pressure sample = ");
+  Serial.print(bmp.readPressure());
+  Serial.println(" Pa");
 
   if (stap12 > 70) {
      //cyclus10();
@@ -202,7 +223,10 @@ void opvragen() {
             //client.print("Click <a href=\"/L\">here</a> to turn the LED on pin 5 off.<br>");
 
             client.print("Temperature internal sensor in celsius: ");
-            client.print(temperatureAverage);
+            client.println(temperatureAverage);
+            client.print("Temperature external sensor in celsius: ");
+            client.println(bmp.readTemperature());
+            
             Serial.print("Going to reset the average counter at stap12 = ");
             Serial.println(stap12);
             stap12 = 0;
