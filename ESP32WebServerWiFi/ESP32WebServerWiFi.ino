@@ -30,7 +30,6 @@
  created 25 Nov 2012
  by Tom Igoe
  */
-#include <Math.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -131,7 +130,7 @@ float getTemperatureInternal() {
   return temp_celsius;
 }
 
-String outputMeasurements(float averageT1, float averageT2, float averageP1) {
+String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1) {
   // Creating out like: HomeSensors,sensor=se01,uomT1="",descriptionT1="internal",uomT2="",descriptionT2="" averageT1=12.02,averageT2=12.02 timestamp
 
   String out = "HomeSensors,sensor=";
@@ -147,6 +146,13 @@ String outputMeasurements(float averageT1, float averageT2, float averageP1) {
   out += ",averageP1=";
   out += String(round(averageP1* 10.0) / 10.0, 1);
 
+  return out;
+}
+
+String outputWeerschipFormat(float averageT1, float averageT2, float averageP1) {
+  // Creating out like: XXXXX
+
+  String out = "WEERSCHIP";
   return out;
 }
 
@@ -196,8 +202,10 @@ void loop(){
   summaryP1 += sampleP1;
   averageP1 = summaryP1 / stap12;
 
-  Serial.println(outputMeasurements(averageT1, averageT2, averageP1));
-
+  if (debug) {
+    Serial.println(outputInfluxdbFormat(averageT1, averageT2, averageP1));
+  }
+  
   if (stap12 > 70) {
      //cyclus10();
      stap12 = 0;
@@ -207,16 +215,17 @@ void loop(){
 
   while (millis() % 12000 < 11500) {
      if (debug) {
-        Serial.print("DEBUG Inloop!!!");
+        Serial.print("DEBUG Inloop: ");
         Serial.println(millis() % 12000);
      }
      opvragen(); //Do WiFi
-     delay(500); //Change into deep-sleep??
+     delay(500); //Change into deep-sleep later to realy power down
   }
   delay(500);
 }
 
 void opvragen() {
+  String request = "";
   WiFiClient client = server.available();   // listen for incoming clients
 
   if (client) {                             // if you get a client,
@@ -225,52 +234,65 @@ void opvragen() {
     while (client.connected()) {            // loop while the client's connected
       if (client.available()) {             // if there's bytes to read from the client,
         char c = client.read();             // read a byte, then
-        Serial.write(c);                    // print it out the serial monitor
-        if (c == '\n') {                    // if the byte is a newline character
+        if (debug) {
+          Serial.write(c);                  // print it out the serial monitor
+        }
 
-          // if the current line is blank, you got two newline characters in a row.
-          // that's the end of the client HTTP request, so send a response:
-          if (currentLine.length() == 0) {
+        if (c == '\n' && currentLine.length() == 0) {                    // if the byte is a newline character
+          // if you've gotten to the end of the line (received a newline
+          // character) and the line is blank, the http request has ended,
+          // so you can send a reply
+               
             // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
             // and a content-type so the client knows what's coming, then a blank line:
             client.println("HTTP/1.1 200 OK");
-            client.println("Content-type:text/plain");
+            client.println("Content-type: text/plain; charset=utf-8");
             client.println("Cache-Control: no-cache");
             client.println();
 
-            // the content of the HTTP response follows the header:
-            //client.print("Click <a href=\"/H\">here</a> to turn the LED on pin 5 on.<br>");
-            //client.print("Click <a href=\"/L\">here</a> to turn the LED on pin 5 off.<br>");
-
-            //client.print(getMeasurements());
+            if (request == "/data.txt") {
+                //send header200
+                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));              
+            } else if (request == "/influxdb.txt")  {
+                //send header200
+                client.println(outputInfluxdbFormat(averageT1, averageT2, averageP1));
+            } else {
+                //send header404 Not FOUND
+                client.println();
+            }
             
-            Serial.print("Going to reset the average counter at stap12 = ");
-            Serial.println(stap12);
-            stap12 = 0;
-            summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
-            Serial.println("Reset stap12 done");
-                        
             // The HTTP response ends with another blank line:
             client.println();
             // break out of the while loop:
             break;
-          } else {    // if you got a newline, then clear currentLine:
+        }
+        if (c == '\n') {   
+          // if you got a newline, then clear currentLine:
             currentLine = "";
-          }
         } else if (c != '\r') {  // if you got anything else but a carriage return character,
           currentLine += c;      // add it to the end of the currentLine
-        }
-
-        // Check to see if the client request was "GET /H" or "GET /L":
-        if (currentLine.endsWith("GET /H")) {
-          digitalWrite(5, HIGH);               // GET /H turns the LED on
-        }
-        if (currentLine.endsWith("GET /L")) {
-          digitalWrite(5, LOW);                // GET /L turns the LED off
-        }
-        if (currentLine.endsWith("GET /status.txt")) {
-          //client.print(statusPage());
-        }
+          // Check to see if the client request was
+          if (currentLine.endsWith("GET /data.txt")) {
+              Serial.println("GET /data.txt request received");
+              request = "/data.txt";
+          } else if (currentLine.endsWith("GET /influxdb.txt")) {
+              Serial.println("GET /influxdb.txt request received");
+              request = "/influxdb.txt";
+              
+              Serial.print("Going to reset the average counter at stap12 = ");
+              Serial.println(stap12);
+              stap12 = 0;
+              summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
+          } else if (currentLine.endsWith("GET /status.txt")) {
+              Serial.println("GET /status.txt request received");
+              request = "/status.txt";
+          } else if (currentLine.endsWith("GET /")) {
+              Serial.println("GET / request received");
+              request = "/";
+          } else {
+              //ERROR URL not found
+          }
+       }       
       }
     }
     // close the connection:
