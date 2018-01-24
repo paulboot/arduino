@@ -30,6 +30,7 @@
  created 25 Nov 2012
  by Tom Igoe
  */
+#include <Math.h>
 #include <WiFi.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
@@ -44,7 +45,7 @@
 
 Adafruit_BMP280 bmp; // I2C
 
-const char* name = "sensor01";      // 
+const char* sensorName = "se01";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
 const char* pass = "gtr5rtg5rtg";   // your network password
 boolean debug = false;
@@ -66,8 +67,6 @@ void setup()
 {
     esp_log_level_set("*", ESP_LOG_VERBOSE);
     Serial.begin(115200);
-    pinMode(5, OUTPUT);      // set the LED pin mode
-    delay(10);
 
     // We start by connecting to a WiFi network
     Serial.println();
@@ -96,7 +95,7 @@ void setup()
 
 void printWifiStatus() {
   Serial.print("Sensor name: ");
-  Serial.println(name);
+  Serial.println(sensorName);
  
   // print the SSID of the network you're attached to:
   Serial.print("SSID: ");
@@ -132,6 +131,25 @@ float getTemperatureInternal() {
   return temp_celsius;
 }
 
+String outputMeasurements(float averageT1, float averageT2, float averageP1) {
+  // Creating out like: HomeSensors,sensor=se01,uomT1="",descriptionT1="internal",uomT2="",descriptionT2="" averageT1=12.02,averageT2=12.02 timestamp
+
+  String out = "HomeSensors,sensor=";
+  out += sensorName;
+  out += ",uomT1=°C,descriptionT1=\"internal\"";
+  out += ",uomT2=°C,descriptionT2=\"external\"";
+  out += ",uomP1=hPa,descriptionP1=\"external\"";
+  out += " ";
+  out += "averageT1=";
+  out += String(round(averageT1* 10.0) / 10.0, 1);  //Round and display one digit
+  out += ",averageT2=";
+  out += String(round(averageT2* 10.0) / 10.0, 1);
+  out += ",averageP1=";
+  out += String(round(averageP1* 10.0) / 10.0, 1);
+
+  return out;
+}
+
 void WiFiEvent(WiFiEvent_t event) {
   Serial.printf("[WiFi-event] event: %d  - ", event);
   switch(event) {
@@ -155,7 +173,9 @@ void WiFiEvent(WiFiEvent_t event) {
 //Global variables
 int value = 0;
 byte stap12 = 0;                // teller voor het aantal 12 seconden perioden
-float temperatureSample, temperatureSum, temperatureAverage;
+float sampleT1, sampleT2, sampleP1;
+float summaryT1, summaryT2, summaryP1;
+float averageT1, averageT2, averageP1;
 
 void loop(){
   stap12 += 1;
@@ -164,24 +184,24 @@ void loop(){
       Serial.println(stap12);
   }
 
-  temperatureSample = getTemperatureInternal();
-  temperatureSum += temperatureSample; 
-  temperatureAverage = temperatureSum / stap12;
-  Serial.print("CPU temperature sample = ");
-  Serial.print(temperatureSample);
-  Serial.print(" average = ");
-  Serial.println(temperatureAverage);
-  Serial.print("External sensor1 temperature sample = ");
-  Serial.print(bmp.readTemperature());
-  Serial.println(" *C");
-  Serial.print("External sensor1 pressure sample = ");
-  Serial.print(bmp.readPressure());
-  Serial.println(" Pa");
+  sampleT1 = getTemperatureInternal();
+  summaryT1 += sampleT1;
+  averageT1 = summaryT1 / stap12;
+
+  sampleT2 = bmp.readTemperature();
+  summaryT2 += sampleT2;
+  averageT2 = summaryT2 / stap12;
+
+  sampleP1 = bmp.readPressure() / 100;
+  summaryP1 += sampleP1;
+  averageP1 = summaryP1 / stap12;
+
+  Serial.println(outputMeasurements(averageT1, averageT2, averageP1));
 
   if (stap12 > 70) {
      //cyclus10();
      stap12 = 0;
-     temperatureSum = 0;
+     summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
      Serial.println("Reset the average counter after 70 intervals of 12 seconds");
   }
 
@@ -222,15 +242,12 @@ void opvragen() {
             //client.print("Click <a href=\"/H\">here</a> to turn the LED on pin 5 on.<br>");
             //client.print("Click <a href=\"/L\">here</a> to turn the LED on pin 5 off.<br>");
 
-            client.print("Temperature internal sensor in celsius: ");
-            client.println(temperatureAverage);
-            client.print("Temperature external sensor in celsius: ");
-            client.println(bmp.readTemperature());
+            //client.print(getMeasurements());
             
             Serial.print("Going to reset the average counter at stap12 = ");
             Serial.println(stap12);
             stap12 = 0;
-            temperatureSum = 0;
+            summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
             Serial.println("Reset stap12 done");
                         
             // The HTTP response ends with another blank line:
