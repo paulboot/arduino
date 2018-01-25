@@ -64,7 +64,9 @@ WiFiServer server(80);
 
 void setup()
 {
-    esp_log_level_set("*", ESP_LOG_VERBOSE);
+    if (debug) {
+      esp_log_level_set("*", ESP_LOG_VERBOSE);
+    }
     Serial.begin(115200);
 
     // We start by connecting to a WiFi network
@@ -83,7 +85,6 @@ void setup()
         delay(500);
         Serial.print(".");
     }
-    Serial.println("connected!");
 
     server.begin();
 
@@ -92,42 +93,28 @@ void setup()
     }
 }
 
-void printWifiStatus() {
-  Serial.print("Sensor name: ");
-  Serial.println(sensorName);
- 
-  // print the SSID of the network you're attached to:
-  Serial.print("SSID: ");
-  Serial.println(WiFi.SSID());
-
-  // print your WiFi shield's IP address:
-  IPAddress ip = WiFi.localIP();
-  Serial.print("IP Address: ");
-  Serial.println(ip);
-
-  String mac = WiFi.macAddress();
-  Serial.print("MAC Address: ");
-  Serial.println(mac);
-
-  // print the received signal strength:
-  long rssi = WiFi.RSSI();
-  Serial.print("signal strength (RSSI):");
-  Serial.print(rssi);
-  Serial.println(" dBm");
-
-  int channel = WiFi.channel();
-  Serial.print("channel: ");
-  Serial.println(channel);
-  
-  // print where to go in a browser:
-  Serial.print("To see this page in action, open a browser to http://");
-  Serial.println(ip);
-}
-
 float getTemperatureInternal() {
   uint8_t temp_farenheit= temprature_sens_read();
   float temp_celsius = ( temp_farenheit - 32 ) / 1.8;
   return temp_celsius;
+}
+
+String outputWiFiStatus() {
+  String out = "";
+  out += "\nSensor name            : ";
+  out += sensorName;
+  out += "\nSSID                   : ";
+  out += WiFi.SSID();
+  out += "\nIP Address             : ";
+  out += WiFi.localIP().toString();
+  out += "\nMAC Address            : ";
+  out += WiFi.macAddress();
+  out += "\nSignal strength (RSSI) : ";
+  out += WiFi.RSSI();
+  out += " dBm";
+  out += "\nChannel                : ";
+  out += WiFi.channel();
+  return out;
 }
 
 String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1) {
@@ -145,14 +132,18 @@ String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1) {
   out += String(round(averageT2* 10.0) / 10.0, 1);
   out += ",averageP1=";
   out += String(round(averageP1* 10.0) / 10.0, 1);
-
   return out;
 }
 
 String outputWeerschipFormat(float averageT1, float averageT2, float averageP1) {
-  // Creating out like: XXXXX
+  // Creating out like: T1|T2|P1
 
-  String out = "WEERSCHIP";
+  String out = "";
+  out += String(round(averageT1* 10.0) / 10.0, 1);  //Round and display one digit
+  out += "|";
+  out += String(round(averageT2* 10.0) / 10.0, 1);
+  out += "|";
+  out += String(round(averageP1* 10.0) / 10.0, 1);
   return out;
 }
 
@@ -161,7 +152,7 @@ void WiFiEvent(WiFiEvent_t event) {
   switch(event) {
   case SYSTEM_EVENT_STA_GOT_IP:
       Serial.println("WiFi connected");
-      printWifiStatus();
+      Serial.println(outputWiFiStatus());
       break;
   case SYSTEM_EVENT_STA_DISCONNECTED:
       Serial.println("WiFi lost connection");
@@ -252,13 +243,33 @@ void opvragen() {
 
             if (request == "/data.txt") {
                 //send header200
-                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));              
+                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));
+                Serial.print("Going to reset the average counter at stap12 = ");
+                Serial.println(stap12);
+                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
             } else if (request == "/influxdb.txt")  {
                 //send header200
                 client.println(outputInfluxdbFormat(averageT1, averageT2, averageP1));
-            } else {
-                //send header404 Not FOUND
+                Serial.print("Going to reset the average counter at stap12 = ");
+                Serial.println(stap12);
+                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
+            } else if (request == "/") {
+                client.println(outputWiFiStatus());
                 client.println();
+                client.print("Data                   : ");
+                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));
+                client.println();
+                client.print("Data Weerschip format  : http://");
+                client.print(WiFi.localIP().toString());
+                client.println("/data.txt");
+                client.print("Data InfluxDB format   : http://");
+                client.print(WiFi.localIP().toString());
+                client.println("/influxdb.txt");
+            }
+            else {
+                //send header404 Not FOUND
+                //client.println("NOT FOUND");
+                Serial.println("ERROR 404: Page NOT FOUND");
             }
             
             // The HTTP response ends with another blank line:
@@ -277,15 +288,7 @@ void opvragen() {
               request = "/data.txt";
           } else if (currentLine.endsWith("GET /influxdb.txt")) {
               Serial.println("GET /influxdb.txt request received");
-              request = "/influxdb.txt";
-              
-              Serial.print("Going to reset the average counter at stap12 = ");
-              Serial.println(stap12);
-              stap12 = 0;
-              summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
-          } else if (currentLine.endsWith("GET /status.txt")) {
-              Serial.println("GET /status.txt request received");
-              request = "/status.txt";
+              request = "/influxdb.txt";         
           } else if (currentLine.endsWith("GET /")) {
               Serial.println("GET / request received");
               request = "/";
