@@ -44,7 +44,7 @@
 
 Adafruit_BMP280 bmp; // I2C
 
-const char* sensorName = "se02.bocuse.nl";      // 
+const char* sensorName = "se01.bocuse.nl";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
 const char* pass = "gtr5rtg5rtg";   // your network password
 boolean debug = false;
@@ -256,13 +256,13 @@ void opvragen() {
 
             if (request == "/data.txt") {
                 //send header200
-                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));
+                client.print(outputWeerschipFormat(averageT1, averageT2, averageP1));
                 Serial.print("Going to reset the average counter at stap12 = ");
                 Serial.println(stap12);
                 stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
             } else if (request == "/influxdb.txt")  {
                 //send header200
-                client.println(outputInfluxdbFormat(averageT1, averageT2, averageP1));
+                client.print(outputInfluxdbFormat(averageT1, averageT2, averageP1));
                 Serial.print("Going to reset the average counter at stap12 = ");
                 Serial.println(stap12);
                 stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
