@@ -44,7 +44,7 @@
 
 Adafruit_BMP280 bmp; // I2C
 
-const char* sensorName = "se01";      // 
+const char* sensorName = "se02.bocuse.nl";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
 const char* pass = "gtr5rtg5rtg";   // your network password
 boolean debug = false;
@@ -103,12 +103,12 @@ String outputWiFiStatus() {
   String out = "";
   out += "\nSensor name            : ";
   out += sensorName;
-  out += "\nSSID                   : ";
-  out += WiFi.SSID();
   out += "\nIP Address             : ";
   out += WiFi.localIP().toString();
   out += "\nMAC Address            : ";
   out += WiFi.macAddress();
+  out += "\nSSID                   : ";
+  out += WiFi.SSID();
   out += "\nSignal strength (RSSI) : ";
   out += WiFi.RSSI();
   out += " dBm";
@@ -144,6 +144,18 @@ String outputWeerschipFormat(float averageT1, float averageT2, float averageP1) 
   out += String(round(averageT2* 10.0) / 10.0, 1);
   out += "|";
   out += String(round(averageP1* 10.0) / 10.0, 1);
+  return out;
+}
+
+String outputWeerschipSampleFormat(float sampleT1, float sampleT2, float sampleP1) {
+  // Creating out like: T1|T2|P1
+
+  String out = "";
+  out += String(sampleT1, 4);  //Display four digits
+  out += "|";
+  out += String(sampleT2, 4);
+  out += "|";
+  out += String(sampleP1, 4);
   return out;
 }
 
@@ -239,6 +251,7 @@ void opvragen() {
             client.println("HTTP/1.1 200 OK");
             client.println("Content-type: text/plain; charset=utf-8");
             client.println("Cache-Control: no-cache");
+            client.println("Refresh: 12");
             client.println();
 
             if (request == "/data.txt") {
@@ -256,8 +269,10 @@ void opvragen() {
             } else if (request == "/") {
                 client.println(outputWiFiStatus());
                 client.println();
-                client.print("Data                   : ");
+                client.print("Data averages          : ");
                 client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));
+                client.print("Data last sample raw   : ");
+                client.println(outputWeerschipSampleFormat(sampleT1, sampleT2, sampleP1));
                 client.println();
                 client.print("Data Weerschip format  : http://");
                 client.print(WiFi.localIP().toString());
@@ -265,6 +280,8 @@ void opvragen() {
                 client.print("Data InfluxDB format   : http://");
                 client.print(WiFi.localIP().toString());
                 client.println("/influxdb.txt");
+                client.println();
+                client.println("This page reloads every 12 seconds, no average reset.");
             }
             else {
                 //send header404 Not FOUND
