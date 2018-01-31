@@ -37,14 +37,16 @@
 
 /*=========================================================================
  I2C ADDRESS/BITS/SETTINGS
- -----------------------------------------------------------------------*/
+ --------------------------------------------------------------------------*/
 #define BMP280_ADDRESS                (0x76)
 #define BMP280_CHIPID                 (0x58)
 /*=========================================================================*/
 
+int ledPin = 5;   // onboard GPIO5
+
 Adafruit_BMP280 bmp; // I2C
 
-const char* sensorName = "se01.bocuse.nl";      // 
+const char* sensorName = "se02.bocuse.nl";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
 const char* pass = "gtr5rtg5rtg";   // your network password
 boolean debug = false;
@@ -68,6 +70,8 @@ void setup()
       esp_log_level_set("*", ESP_LOG_VERBOSE);
     }
     Serial.begin(115200);
+    pinMode(ledPin, OUTPUT);
+    digitalWrite(ledPin, LOW);
 
     // We start by connecting to a WiFi network
     Serial.println();
@@ -205,6 +209,11 @@ void loop(){
   summaryP1 += sampleP1;
   averageP1 = summaryP1 / stap12;
 
+  //Flash GPIO5 led measurement taken
+  digitalWrite(ledPin, HIGH);
+  delay(10);
+  digitalWrite(ledPin, LOW);
+
   if (debug) {
     Serial.println(outputInfluxdbFormat(averageT1, averageT2, averageP1));
   }
@@ -216,15 +225,15 @@ void loop(){
      Serial.println("Reset the average counter after 70 intervals of 12 seconds");
   }
 
-  while (millis() % 12000 < 11500) {
+  while (millis() % 12000 < 11750) {
      if (debug) {
         Serial.print("DEBUG Inloop: ");
         Serial.println(millis() % 12000);
      }
      opvragen(); //Do WiFi
-     delay(500); //Change into deep-sleep later to realy power down
+     delay(250); //Change into deep-sleep later to realy power down
   }
-  delay(500);
+  delay(250);
 }
 
 void opvragen() {
@@ -251,7 +260,6 @@ void opvragen() {
             client.println("HTTP/1.1 200 OK");
             client.println("Content-type: text/plain; charset=utf-8");
             client.println("Cache-Control: no-cache");
-            client.println("Refresh: 12");
             client.println();
 
             if (request == "/data.txt") {
@@ -281,7 +289,6 @@ void opvragen() {
                 client.print(WiFi.localIP().toString());
                 client.println("/influxdb.txt");
                 client.println();
-                client.println("This page reloads every 12 seconds, no average reset.");
             }
             else {
                 //send header404 Not FOUND
