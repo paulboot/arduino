@@ -33,20 +33,15 @@
 #include <WiFi.h>
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
-#include <Adafruit_BMP280.h>
+#include "Adafruit_BME680.h"
 
-/*=========================================================================
- I2C ADDRESS/BITS/SETTINGS
- --------------------------------------------------------------------------*/
-#define BMP280_ADDRESS                (0x76)
-#define BMP280_CHIPID                 (0x58)
-/*=========================================================================*/
+#define SEALEVELPRESSURE_HPA (1013.25)
+
+Adafruit_BME680 bme; // I2C
 
 int ledPin = 5;   // onboard GPIO5
 
-Adafruit_BMP280 bmp; // I2C
-
-const char* sensorName = "se01.bocuse.nl";      // 
+const char* sensorName = "se02.bocuse.nl";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
 const char* pass = "gtr5rtg5rtg";   // your network password
 boolean debug = false;
@@ -87,14 +82,23 @@ void setup()
 
     while (WiFi.status() != WL_CONNECTED) {
         delay(500);
-        Serial.print(".");
     }
 
     server.begin();
 
-    if (!bmp.begin(BMP280_ADDRESS, BMP280_CHIPID)) {  
-      Serial.println(F("Could not find a valid BMP280 sensor, check address and wiring!"));
-    }
+  Serial.print("During setup searching BME680 sensor...");
+  if (!bme.begin()) {
+    Serial.println("ERROR!");
+    Serial.println("Could not find a valid BME680 sensor, check wiring!");
+  } else {
+    Serial.println("FOUND!");
+    // Set up oversampling and filter initialization
+    bme.setTemperatureOversampling(BME680_OS_8X);
+    bme.setHumidityOversampling(BME680_OS_2X);
+    bme.setPressureOversampling(BME680_OS_4X);
+    bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
+    bme.setGasHeater(320, 150); // 320*C for 150 ms
+  }
 }
 
 float getTemperatureInternal() {
@@ -121,7 +125,7 @@ String outputWiFiStatus() {
   return out;
 }
 
-String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1) {
+String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1, float averageH1, float averageG1) {
   // Creating out like: HomeSensors,sensor=se01,uomT1="",descriptionT1="internal",uomT2="",descriptionT2="" averageT1=12.02,averageT2=12.02 timestamp
 
   String out = "HomeSensors,sensor=";
@@ -129,6 +133,8 @@ String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1) {
   out += ",uomT1=°C,descriptionT1=\"internal\"";
   out += ",uomT2=°C,descriptionT2=\"external\"";
   out += ",uomP1=hPa,descriptionP1=\"external\"";
+  out += ",uomH1=%,descriptionH1=\"external\"";
+  out += ",uomG1=KOhms,descriptionG1=\"external\"";
   out += " ";
   out += "averageT1=";
   out += String(round(averageT1* 10.0) / 10.0, 1);  //Round and display one digit
@@ -136,11 +142,15 @@ String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1) {
   out += String(round(averageT2* 10.0) / 10.0, 1);
   out += ",averageP1=";
   out += String(round(averageP1* 10.0) / 10.0, 1);
+  out += ",averageH1=";
+  out += String(round(averageH1* 10.0) / 10.0, 1);
+  out += ",averageG1=";
+  out += String(round(averageG1* 10.0) / 10.0, 1);
   return out;
 }
 
-String outputWeerschipFormat(float averageT1, float averageT2, float averageP1) {
-  // Creating out like: T1|T2|P1
+String outputWeerschipFormat(float averageT1, float averageT2, float averageP1, float averageH1, float averageG1) {
+  // Creating out like: T1|T2|P1|H1|G1
 
   String out = "";
   out += String(round(averageT1* 10.0) / 10.0, 1);  //Round and display one digit
@@ -148,10 +158,15 @@ String outputWeerschipFormat(float averageT1, float averageT2, float averageP1) 
   out += String(round(averageT2* 10.0) / 10.0, 1);
   out += "|";
   out += String(round(averageP1* 10.0) / 10.0, 1);
+  out += "|";
+  out += String(round(averageH1* 10.0) / 10.0, 1);
+  out += "|";
+  out += String(round(averageG1* 10.0) / 10.0, 1);
+
   return out;
 }
 
-String outputWeerschipSampleFormat(float sampleT1, float sampleT2, float sampleP1) {
+String outputWeerschipSampleFormat(float sampleT1, float sampleT2, float sampleP1, float sampleH1, float sampleG1) {
   // Creating out like: T1|T2|P1
 
   String out = "";
@@ -160,6 +175,11 @@ String outputWeerschipSampleFormat(float sampleT1, float sampleT2, float sampleP
   out += String(sampleT2, 4);
   out += "|";
   out += String(sampleP1, 4);
+  out += "|";
+  out += String(sampleH1, 4);
+  out += "|";
+  out += String(sampleG1, 4);
+
   return out;
 }
 
@@ -186,9 +206,9 @@ void WiFiEvent(WiFiEvent_t event) {
 //Global variables
 int value = 0;
 byte stap12 = 0;                // teller voor het aantal 12 seconden perioden
-float sampleT1, sampleT2, sampleP1;
-float summaryT1, summaryT2, summaryP1;
-float averageT1, averageT2, averageP1;
+float sampleT1, sampleT2, sampleP1, sampleH1, sampleG1;
+float summaryT1, summaryT2, summaryP1, summaryH1, summaryG1;
+float averageT1, averageT2, averageP1, averageH1, averageG1;
 
 void loop(){
   stap12 += 1;
@@ -201,13 +221,25 @@ void loop(){
   summaryT1 += sampleT1;
   averageT1 = summaryT1 / stap12;
 
-  sampleT2 = bmp.readTemperature();
-  summaryT2 += sampleT2;
-  averageT2 = summaryT2 / stap12;
-
-  sampleP1 = bmp.readPressure() / 100;
-  summaryP1 += sampleP1;
-  averageP1 = summaryP1 / stap12;
+  if (! bme.performReading()) {
+    Serial.println("Failed to perform reading :(");
+  } else {
+    sampleT2 = bme.temperature;
+    summaryT2 += sampleT2;
+    averageT2 = summaryT2 / stap12;
+  
+    sampleP1 = bme.pressure / 100;
+    summaryP1 += sampleP1;
+    averageP1 = summaryP1 / stap12;
+  
+    sampleH1 = bme.humidity;
+    summaryH1 += sampleH1;
+    averageH1 = summaryH1 / stap12;
+  
+    sampleG1 = bme.gas_resistance / 1000.0;
+    summaryG1 += sampleG1;
+    averageG1 = summaryG1 / stap12;
+  }
 
   //Flash GPIO5 led measurement taken
   digitalWrite(ledPin, HIGH);
@@ -215,13 +247,13 @@ void loop(){
   digitalWrite(ledPin, LOW);
 
   if (debug) {
-    Serial.println(outputInfluxdbFormat(averageT1, averageT2, averageP1));
+    Serial.println(outputInfluxdbFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
   }
   
   if (stap12 > 70) {
      //cyclus10();
      stap12 = 0;
-     summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
+     summaryT1 = 0; summaryT2 = 0; summaryP1 = 0; summaryH1 = 0; summaryG1 = 0;
      Serial.println("Reset the average counter after 70 intervals of 12 seconds");
   }
 
@@ -264,23 +296,25 @@ void opvragen() {
 
             if (request == "/data.txt") {
                 //send header200
-                client.print(outputWeerschipFormat(averageT1, averageT2, averageP1));
+                client.print(outputWeerschipFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
                 Serial.print("Going to reset the average counter at stap12 = ");
                 Serial.println(stap12);
-                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
+                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0; summaryH1 = 0; summaryG1 = 0;
             } else if (request == "/influxdb.txt")  {
                 //send header200
-                client.print(outputInfluxdbFormat(averageT1, averageT2, averageP1));
+                client.print(outputInfluxdbFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
                 Serial.print("Going to reset the average counter at stap12 = ");
                 Serial.println(stap12);
-                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0;
+                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0; summaryH1 = 0; summaryG1 = 0;
             } else if (request == "/") {
                 client.println(outputWiFiStatus());
                 client.println();
+                client.print("Data format            : T1|T2|P1|H1|G1");
+                client.println();
                 client.print("Data averages          : ");
-                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1));
+                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
                 client.print("Data last sample raw   : ");
-                client.println(outputWeerschipSampleFormat(sampleT1, sampleT2, sampleP1));
+                client.println(outputWeerschipSampleFormat(sampleT1, sampleT2, sampleP1, sampleH1, sampleG1));
                 client.println();
                 client.print("Data Weerschip format  : http://");
                 client.print(WiFi.localIP().toString());
