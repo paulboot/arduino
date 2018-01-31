@@ -46,7 +46,7 @@ int ledPin = 5;   // onboard GPIO5
 
 Adafruit_BMP280 bmp; // I2C
 
-const char* sensorName = "se02.bocuse.nl";      // 
+const char* sensorName = "se01.bocuse.nl";      // 
 const char* ssid = "DLFT";          // your network SSID (name)
 const char* pass = "gtr5rtg5rtg";   // your network password
 boolean debug = false;
@@ -307,13 +307,13 @@ void opvragen() {
         } else if (c != '\r') {  // if you got anything else but a carriage return character,
           currentLine += c;      // add it to the end of the currentLine
           // Check to see if the client request was
-          if (currentLine.endsWith("GET /data.txt")) {
+          if (currentLine.endsWith("GET /data.txt ")) {
               Serial.println("GET /data.txt request received");
               request = "/data.txt";
-          } else if (currentLine.endsWith("GET /influxdb.txt")) {
+          } else if (currentLine.endsWith("GET /influxdb.txt ")) {
               Serial.println("GET /influxdb.txt request received");
               request = "/influxdb.txt";         
-          } else if (currentLine.endsWith("GET /")) {
+          } else if (currentLine.endsWith("GET / ")) {
               Serial.println("GET / request received");
               request = "/";
           } else {
