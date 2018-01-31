@@ -309,6 +309,11 @@ void opvragen() {
             } else if (request == "/") {
                 client.println(outputWiFiStatus());
                 client.println();
+                client.print("Sensor type            : ");
+                client.println();
+                client.print("Sensor status          : ");
+                client.println();
+                client.println();
                 client.print("Data format            : T1|T2|P1|H1|G1");
                 client.println();
                 client.print("Data averages          : ");
