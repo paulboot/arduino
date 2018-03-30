@@ -6,10 +6,6 @@
  to the Serial monitor. From there, you can open that address in a web browser
  to turn on and off the LED on pin 9.
 
- If the IP address of your shield is yourAddress:
- http://yourAddress/H turns the LED on
- http://yourAddress/L turns it off
-
  This example is written for a network using WPA encryption. For
  WEP or WPA, change the Wifi.begin() call accordingly.
 
@@ -34,17 +30,20 @@
 #include <Wire.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
+#include "Adafruit_HDC1000.h"
 
 #define SEALEVELPRESSURE_HPA (1013.25)
 
-Adafruit_BME680 bme; // I2C
+Adafruit_BME680 bme;
+Adafruit_HDC1000 hdc = Adafruit_HDC1000();
 
-int ledPin = 5;   // onboard GPIO5
+int ledPin = 13;   // onboard LED on GPIO13
 
-const char* sensorName = "se02.bocuse.nl";      // 
-const char* ssid = "DLFT";          // your network SSID (name)
-const char* pass = "gtr5rtg5rtg";   // your network password
+const char* sensorName = "se03.bocuse.nl";
+const char* ssid = "DLFT";
+const char* pass = "gtr5rtg5rtg";
 boolean debug = false;
+char* sensorType = "";
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,12 +85,12 @@ void setup()
 
     server.begin();
 
-  Serial.print("During setup searching BME680 sensor...");
+  Serial.print("Searching for BME680 sensor...");
   if (!bme.begin()) {
-    Serial.println("ERROR!");
-    Serial.println("Could not find a valid BME680 sensor, check wiring!");
+    Serial.println("NOT FOUND!");
   } else {
     Serial.println("FOUND!");
+    sensorType="BME680";
     // Set up oversampling and filter initialization
     bme.setTemperatureOversampling(BME680_OS_8X);
     bme.setHumidityOversampling(BME680_OS_2X);
@@ -99,9 +98,19 @@ void setup()
     bme.setIIRFilterSize(BME680_FILTER_SIZE_3);
     bme.setGasHeater(320, 150); // 320*C for 150 ms
   }
+
+  Serial.print("Searching for HDC1080 sensor...");
+  if (!hdc.begin()) {
+    Serial.println("NOT FOUND!");
+  } else {
+    sensorType="HDC1080";
+    Serial.println("FOUND!");
+  }
+
+  Serial.println(outputWiFiStatus());
 }
 
-float getTemperatureInternal() {
+float getTemperatureInternalESP32() {
   uint8_t temp_farenheit= temprature_sens_read();
   float temp_celsius = ( temp_farenheit - 32 ) / 1.8;
   return temp_celsius;
@@ -111,7 +120,9 @@ String outputWiFiStatus() {
   String out = "";
   out += "\nSensor name            : ";
   out += sensorName;
-  out += "\nIP Address             : ";
+  out += "\nSensor type            : ";
+  out += sensorType;
+  out += "\n\nIP Address             : ";
   out += WiFi.localIP().toString();
   out += "\nMAC Address            : ";
   out += WiFi.macAddress();
@@ -122,34 +133,43 @@ String outputWiFiStatus() {
   out += " dBm";
   out += "\nChannel                : ";
   out += WiFi.channel();
+  out += "\n";
   return out;
 }
 
-String outputInfluxdbFormat(float averageT1, float averageT2, float averageP1, float averageH1, float averageG1) {
+String outputInfluxdbFormat(float averageT1, float averageT2, float averageH1, float averageP1 = -1, float averageG1 = -1) {
   // Creating out like: HomeSensors,sensor=se01,uomT1="",descriptionT1="internal",uomT2="",descriptionT2="" averageT1=12.02,averageT2=12.02 timestamp
 
   String out = "HomeSensors,sensor=";
   out += sensorName;
   out += ",uomT1=°C,descriptionT1=\"internal\"";
   out += ",uomT2=°C,descriptionT2=\"external\"";
-  out += ",uomP1=hPa,descriptionP1=\"external\"";
   out += ",uomH1=%,descriptionH1=\"external\"";
-  out += ",uomG1=KOhms,descriptionG1=\"external\"";
+  if (averageP1 != -1) {
+    out += ",uomP1=hPa,descriptionP1=\"external\"";
+  }
+  if (averageG1 != -1) {
+    out += ",uomG1=KOhms,descriptionG1=\"external\"";
+  }
   out += " ";
   out += "averageT1=";
   out += String(round(averageT1* 10.0) / 10.0, 1);  //Round and display one digit
   out += ",averageT2=";
   out += String(round(averageT2* 10.0) / 10.0, 1);
-  out += ",averageP1=";
-  out += String(round(averageP1* 10.0) / 10.0, 1);
   out += ",averageH1=";
   out += String(round(averageH1* 10.0) / 10.0, 1);
-  out += ",averageG1=";
-  out += String(round(averageG1* 10.0) / 10.0, 1);
+  if (averageP1 != -1) {
+    out += ",averageP1=";
+    out += String(round(averageP1* 10.0) / 10.0, 1);
+  }
+  if (averageG1 != -1) {
+    out += ",averageG1=";
+    out += String(round(averageG1* 10.0) / 10.0, 1);
+  }
   return out;
 }
 
-String outputWeerschipFormat(float averageT1, float averageT2, float averageP1, float averageH1, float averageG1) {
+String outputWeerschipFormat(float averageT1, float averageT2, float averageH1, float averageP1 = -1, float averageG1 = -1) {
   // Creating out like: T1|T2|P1|H1|G1
 
   String out = "";
@@ -157,29 +177,48 @@ String outputWeerschipFormat(float averageT1, float averageT2, float averageP1, 
   out += "|";
   out += String(round(averageT2* 10.0) / 10.0, 1);
   out += "|";
-  out += String(round(averageP1* 10.0) / 10.0, 1);
-  out += "|";
   out += String(round(averageH1* 10.0) / 10.0, 1);
-  out += "|";
-  out += String(round(averageG1* 10.0) / 10.0, 1);
-
+  if (averageP1 != -1) {  
+    out += "|";
+    out += String(round(averageP1* 10.0) / 10.0, 1);
+  }
+  if (averageG1 != -1) {  
+    out += "|";
+    out += String(round(averageG1* 10.0) / 10.0, 1);
+  }
   return out;
 }
 
-String outputWeerschipSampleFormat(float sampleT1, float sampleT2, float sampleP1, float sampleH1, float sampleG1) {
-  // Creating out like: T1|T2|P1
+String outputWeerschipSampleFormat(float sampleT1, float sampleT2, float sampleH1, float sampleP1 = -1, float sampleG1 = -1) {
+  // Creating out like: T1|T2|H1 optional P1|G1
 
   String out = "";
   out += String(sampleT1, 4);  //Display four digits
   out += "|";
   out += String(sampleT2, 4);
   out += "|";
-  out += String(sampleP1, 4);
-  out += "|";
   out += String(sampleH1, 4);
-  out += "|";
-  out += String(sampleG1, 4);
+  if (sampleP1 != -1) {
+    out += "|";
+    out += String(sampleP1, 4);
+  }
+  if (sampleG1 != -1) {
+    out += "|";
+    out += String(sampleG1, 4);
+  }
+  return out;
+}
 
+String outputWeerschipQuantity(float sampleT1, float sampleT2, float sampleH1, float sampleP1 = -1, float sampleG1 = -1) {
+  // Creating out like: T1|T2|H1 optional P1|G1
+  String out = "";
+  out += "T1|T2|H1";
+  if (sampleP1 != -1) {
+    out += "|P1";
+  }
+  if (sampleG1 != -1) {
+    out += "|G1";
+  }
   return out;
 }
 
@@ -206,9 +245,9 @@ void WiFiEvent(WiFiEvent_t event) {
 //Global variables
 int value = 0;
 byte stap12 = 0;                // teller voor het aantal 12 seconden perioden
-float sampleT1, sampleT2, sampleP1, sampleH1, sampleG1;
-float summaryT1, summaryT2, summaryP1, summaryH1, summaryG1;
-float averageT1, averageT2, averageP1, averageH1, averageG1;
+float sampleT1, sampleT2, sampleH1, sampleP1 = -1, sampleG1 = -1;
+float summaryT1, summaryT2, summaryH1, summaryP1, summaryG1;
+float averageT1, averageT2, averageH1, averageP1 = -1, averageG1 = -1;
 
 void loop(){
   stap12 += 1;
@@ -217,28 +256,40 @@ void loop(){
       Serial.println(stap12);
   }
 
-  sampleT1 = getTemperatureInternal();
+  sampleT1 = getTemperatureInternalESP32();
   summaryT1 += sampleT1;
   averageT1 = summaryT1 / stap12;
 
-  if (! bme.performReading()) {
-    Serial.println("Failed to perform reading :(");
-  } else {
-    sampleT2 = bme.temperature;
-    summaryT2 += sampleT2;
-    averageT2 = summaryT2 / stap12;
-  
-    sampleP1 = bme.pressure / 100;
-    summaryP1 += sampleP1;
-    averageP1 = summaryP1 / stap12;
-  
-    sampleH1 = bme.humidity;
-    summaryH1 += sampleH1;
-    averageH1 = summaryH1 / stap12;
-  
-    sampleG1 = bme.gas_resistance / 1000.0;
-    summaryG1 += sampleG1;
-    averageG1 = summaryG1 / stap12;
+  if (sensorType == "BME680") {
+    if (! bme.performReading()) {
+      Serial.println("Failed to perform reading :(");
+    } else {
+      sampleT2 = bme.temperature;
+      summaryT2 += sampleT2;
+      averageT2 = summaryT2 / stap12;
+
+      sampleH1 = bme.humidity;
+      summaryH1 += sampleH1;
+      averageH1 = summaryH1 / stap12;
+
+      sampleP1 = bme.pressure / 100;
+      summaryP1 += sampleP1;
+      averageP1 = summaryP1 / stap12;
+    
+      sampleG1 = bme.gas_resistance / 1000.0;
+      summaryG1 += sampleG1;
+      averageG1 = summaryG1 / stap12;
+    }
+  }
+
+  if (sensorType == "HDC1080") {
+      sampleT2 = hdc.readTemperature();
+      summaryT2 += sampleT2;
+      averageT2 = summaryT2 / stap12;
+    
+      sampleH1 = hdc.readHumidity();
+      summaryH1 += sampleH1;
+      averageH1 = summaryH1 / stap12;
   }
 
   //Flash GPIO5 led measurement taken
@@ -247,13 +298,13 @@ void loop(){
   digitalWrite(ledPin, LOW);
 
   if (debug) {
-    Serial.println(outputInfluxdbFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
+    Serial.println(outputInfluxdbFormat(averageT1, averageT2, averageH1, averageP1, averageG1));
   }
-  
+    
   if (stap12 > 70) {
      //cyclus10();
      stap12 = 0;
-     summaryT1 = 0; summaryT2 = 0; summaryP1 = 0; summaryH1 = 0; summaryG1 = 0;
+     summaryT1 = 0; summaryT2 = 0; summaryH1 = 0; summaryP1 = 0; summaryG1 = 0;
      Serial.println("Reset the average counter after 70 intervals of 12 seconds");
   }
 
@@ -294,32 +345,20 @@ void opvragen() {
             client.println("Cache-Control: no-cache");
             client.println();
 
-            if (request == "/data.txt") {
+            if (request == "/influxdb.txt")  {
                 //send header200
-                client.print(outputWeerschipFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
+                client.print(outputInfluxdbFormat(averageT1, averageT2, averageH1, averageP1, averageG1));
                 Serial.print("Going to reset the average counter at stap12 = ");
                 Serial.println(stap12);
-                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0; summaryH1 = 0; summaryG1 = 0;
-            } else if (request == "/influxdb.txt")  {
-                //send header200
-                client.print(outputInfluxdbFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
-                Serial.print("Going to reset the average counter at stap12 = ");
-                Serial.println(stap12);
-                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryP1 = 0; summaryH1 = 0; summaryG1 = 0;
+                stap12 = 0; summaryT1 = 0; summaryT2 = 0; summaryH1 = 0; summaryP1 = 0; summaryG1 = 0;
             } else if (request == "/") {
                 client.println(outputWiFiStatus());
-                client.println();
-                client.print("Sensor type            : ");
-                client.println();
-                client.print("Sensor status          : ");
-                client.println();
-                client.println();
-                client.print("Data format            : T1|T2|P1|H1|G1");
-                client.println();
+                client.print("Data format            : ");
+                client.println(outputWeerschipQuantity(averageT1, averageT2, averageH1, averageP1, averageG1));
                 client.print("Data averages          : ");
-                client.println(outputWeerschipFormat(averageT1, averageT2, averageP1, averageH1, averageG1));
+                client.println(outputWeerschipFormat(averageT1, averageT2, averageH1, averageP1, averageG1));
                 client.print("Data last sample raw   : ");
-                client.println(outputWeerschipSampleFormat(sampleT1, sampleT2, sampleP1, sampleH1, sampleG1));
+                client.println(outputWeerschipSampleFormat(sampleT1, sampleT2, sampleH1, sampleP1, sampleG1));
                 client.println();
                 client.print("Data Weerschip format  : http://");
                 client.print(WiFi.localIP().toString());
