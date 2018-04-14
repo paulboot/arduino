@@ -1,13 +1,7 @@
 /*
   WiFi Web Server LED Blink
 
- A simple web server that lets you blink an LED via the web.
- This sketch will print the IP address of your WiFi Shield (once connected)
- to the Serial monitor. From there, you can open that address in a web browser
- to turn on and off the LED on pin 9.
 
- This example is written for a network using WPA encryption. For
- WEP or WPA, change the Wifi.begin() call accordingly.
 
  Circuit:
  * WiFi shield attached
@@ -25,6 +19,11 @@
 
  created 25 Nov 2012
  by Tom Igoe
+
+ modified by Paul Boot
+
+ CO2 Sensor code bases on: https://github.com/mysensors/MySensorsArduinoExamples/blob/master/examples/MH-Z19%20CO2%20sensor
+ 
  */
 #include <WiFi.h>
 #include <Wire.h>
@@ -36,13 +35,13 @@
 
 Adafruit_BME680 bme;
 Adafruit_HDC1000 hdc = Adafruit_HDC1000();
-HardwareSerial MHZ19Serial(2);                  // RX, TX . You can choose other pins if you prefer.
+HardwareSerial MHZ19Serial(2);
 #define MHZ19SERIAL_RXPIN 16 
 #define MHZ19SERIAL_TXPIN 17 
 
 int ledPin = 13;   // onboard LED on GPIO13
 
-const char* sensorName = "se01.bocuse.nl";
+const char* sensorName = "se02.bocuse.nl";
 const char* ssid = "DLFT";
 const char* pass = "gtr5rtg5rtg";
 boolean debug = false;
