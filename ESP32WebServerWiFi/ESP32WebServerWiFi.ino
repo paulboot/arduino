@@ -41,7 +41,7 @@ HardwareSerial MHZ19Serial(2);
 
 int ledPin = 13;   // onboard LED on GPIO13
 
-const char* sensorName = "se02.bocuse.nl";
+const char* sensorName = "se4.bocuse.nl";
 const char* ssid = "DLFT";
 const char* pass = "gtr5rtg5rtg";
 boolean debug = false;
@@ -111,6 +111,8 @@ void setup()
 
   Serial.print("Searching for MH-Z19 sensor...");
   MHZ19Serial.begin(9600, SERIAL_8N1, MHZ19SERIAL_RXPIN, MHZ19SERIAL_TXPIN);
+  //delay(2000);
+  readCO2(); // Discard first readout, fails sometimes
   delay(1000);
   if (readCO2() != -1) {
     sensorType += "MH-Z19 ";
