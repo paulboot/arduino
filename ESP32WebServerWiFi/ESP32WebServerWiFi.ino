@@ -5,7 +5,8 @@
 
  Circuit:
  * WiFi shield attached
- * LED attached to pin 5
+ * LED attached to pin 13 Adafruit ESP32
+ * LED attached to pin 2 DOIT ESP32
 
  Error codes from WiFiType.h:
  WL_NO_SHIELD        = 255,   // for compatibility with WiFi Shield library
@@ -26,7 +27,11 @@
  
  */
 #include <WiFi.h>
+#include <ESPmDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
 #include <Wire.h>
+#include <ArduinoJson.h>
 #include <Adafruit_Sensor.h>
 #include "Adafruit_BME680.h"
 #include "Adafruit_HDC1000.h"
@@ -39,12 +44,13 @@ HardwareSerial MHZ19Serial(2);
 #define MHZ19SERIAL_RXPIN 16 
 #define MHZ19SERIAL_TXPIN 17 
 
-int ledPin = 13;   // onboard LED on GPIO13
+int ledPin = 2;   // onboard LED on GPIO13
 
-const char* sensorName = "se4.bocuse.nl";
 const char* ssid = "DLFT";
 const char* pass = "gtr5rtg5rtg";
+const char* domainName = "bocuse.nl";
 boolean debug = false;
+String sensorName = "";
 String sensorType = "";
 
 #ifdef __cplusplus
@@ -85,7 +91,110 @@ void setup()
         delay(500);
     }
 
+    // Connect to HTTP server
+    Serial.println(F("Connecting..."));
+    WiFiClient client;
+    client.setTimeout(5000);
+    if (!client.connect("mo4.bocuse.nl", 8000)) {
+      Serial.println(F("Connection to config server failed"));
+      return;
+    }
+
+    // Send HTTP request
+    String macAddress = WiFi.macAddress();
+    macAddress.replace(":", "");
+    
+    String getURL = "GET /devices/?format=json&mac=";
+    getURL += macAddress;
+    getURL += " HTTP/1.0";
+    
+    Serial.println(getURL);
+    client.println(getURL);
+    client.println(F("Host: mo4.bocuse.nl"));
+    client.println(F("Connection: close"));
+    if (client.println() == 0) {
+      Serial.println(F("Failed to get config from config server"));
+      return;
+    }
+
+    // Check HTTP status
+    char status[32] = {0};
+    client.readBytesUntil('\r', status, sizeof(status));
+    if (strcmp(status, "HTTP/1.1 200 OK") != 0) {
+      Serial.print(F("Unexpected response: "));
+      Serial.println(status);
+      return;
+    }
+  
+    // Skip HTTP headers
+    char endOfHeaders[] = "\r\n\r\n";
+    if (!client.find(endOfHeaders)) {
+      Serial.println(F("Invalid response"));
+      return;
+    }
+  
+    // Allocate JsonBuffer
+    // Use arduinojson.org/assistant to compute the capacity.
+    const size_t bufferSize = JSON_ARRAY_SIZE(1) + JSON_OBJECT_SIZE(10) + 200;
+    DynamicJsonBuffer jsonBuffer(bufferSize);
+  
+    // Parse JSON object
+    JsonArray& root = jsonBuffer.parseArray(client);
+    if (!root.success()) {
+      Serial.println(F("Parsing failed!"));
+      return;
+    }
+  
+    // Extract values from JSON object
+    JsonObject& root_0 = root[0];
+    const char* root_0_name = root_0["name"];
+    sensorName += root_0_name;
+    sensorName += domainName;
+    Serial.print(F("sensorName: "));
+    Serial.println(sensorName);
+  
+    // Disconnect finised getting config
+    client.stop();
+
+    //Start webserver
     server.begin();
+
+  //OTA part
+  //Source: https://diyprojects.io/arduinoota-esp32-wi-fi-ota-wireless-update-arduino-ide
+  ArduinoOTA.setHostname("Demo OTA ESP32");
+ 
+  // No authentication by default
+  // ArduinoOTA.setPassword("admin");
+ 
+  // Password can be set with it's md5 value as well
+  // MD5(admin) = 21232f297a57a5a743894a0e4a801fc3
+  ArduinoOTA.setPasswordHash("5c8c882f5ed62e18f2a172f4b8b984ef");
+ 
+  ArduinoOTA.onStart([]() {
+    String type;
+    if (ArduinoOTA.getCommand() == U_FLASH)
+      type = "sketch";
+    else // U_SPIFFS
+      type = "filesystem";
+ 
+    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+    Serial.println("Start updating " + type);
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
 
   Serial.print("Searching for BME680 sensor...");
   if (!bme.begin()) {
@@ -335,6 +444,9 @@ float summaryT1, summaryT2, summaryH1, summaryP1, summaryG1, summaryC1;
 float averageT1, averageT2, averageH1, averageP1 = -1, averageG1 = -1, averageC1 = -1;
 
 void loop(){
+
+  ArduinoOTA.handle();
+    
   stap12 += 1;
   if (debug) {
       Serial.print("Stap12 = ");
