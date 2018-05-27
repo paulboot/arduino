@@ -149,6 +149,7 @@ void setup()
     JsonObject& root_0 = root[0];
     const char* root_0_name = root_0["name"];
     sensorName += root_0_name;
+    sensorName += ".";
     sensorName += domainName;
     Serial.print(F("sensorName: "));
     Serial.println(sensorName);
